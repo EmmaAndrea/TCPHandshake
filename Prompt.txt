@@ -1,0 +1,186 @@
+Can you implement a tcp handshake similar to this but in java. Please simplify it a little bit but keep ack and syn logic.
+
+package main
+
+import (
+    "fmt"
+    "math/rand"
+)
+
+type Client struct {
+    name            string
+    syn             int
+    ack             int
+    receivedPackage string
+}
+
+type Server struct {
+    name             string
+    syn              int
+    ack              int
+    serverPackage    string
+    secureConnection bool
+}
+
+func main() {
+    execute()
+}
+
+func execute() {
+
+    var myClient Client = Client{"myClient", 0, 0, "null"}
+
+    // creat the server
+    var myServer Server = Server{"myServer", 0, 0, "Server package", false}
+
+    handshakeChannel := make(chan int)
+    fmt.Println("made handshake channel")
+
+    acceptanceChannel := make(chan bool)
+    fmt.Println("made acceptance channel")
+
+    go myClient.run(handshakeChannel)
+    fmt.Println("Started client go routine")
+
+    go myServer.run(handshakeChannel, acceptanceChannel)
+    fmt.Println("Started server go routine")
+
+    accept := <-acceptanceChannel
+
+    if accept {
+        packageChannel := make(chan string)
+
+        go myServer.sendPackage(packageChannel)
+
+        myClient.receivedPackage = <-packageChannel
+
+        fmt.Println("Client received: " + myClient.receivedPackage)
+    } else {
+        fmt.Println("Handshake Closed")
+    }
+}
+
+func (client *Client) run(handshakeChannel chan int) {
+
+    // build a SYN
+    SYN := rand.Intn(100)
+
+    // give it to client object
+    client.syn = SYN
+
+    // send this syn
+    sendSequence(handshakeChannel, SYN)
+    fmt.Printf("Client sent client SYN (%d) \n", client.syn)
+
+    // receive ack
+    serverACK := <-handshakeChannel
+    fmt.Printf("Client received server ACK (%d) \n", serverACK)
+
+    serverSYN := <-handshakeChannel
+    fmt.Printf("Client received server SYN (%d) \n", serverSYN)
+
+    // check the ack is the next number in the syn sequence
+    if checkSequence(serverACK, client.syn) {
+
+        // make ack for client
+        client.ack = serverACK + 1
+
+        // send ack to server
+        sendSequence(handshakeChannel, client.ack)
+        fmt.Printf("Client sent server sequence (%d) \n", client.ack)
+
+        // if the ack is not accepted
+    } else {
+        fmt.Println("BLOCKED")
+        return
+    }
+
+    // send next number in syn sequence
+    clientACK := serverSYN + 1
+    handshakeChannel <- clientACK
+    fmt.Printf("Client sent ack for server SYN (%d) \n", clientACK)
+
+    fmt.Println("Client completed Handshake")
+
+}
+
+func (server *Server) run(handshakeChannel chan int, acceptanceChannel chan bool) {
+    // receive clientSYN from client
+    clientSYN := <-handshakeChannel
+    fmt.Printf("Server received client SYN (%d) \n", clientSYN)
+
+    // build ack based on clientSYN
+    ACK := nextExpectedSequenceNumber(clientSYN)
+
+    // store this value
+    server.ack = ACK
+
+    // send this value to the client
+    sendSequence(handshakeChannel, server.ack)
+    fmt.Printf("Server sent server ACK (%d) \n", server.ack)
+
+    // build a new SYN
+    SYN := rand.Intn(100)
+
+    // store as server syn
+    server.syn = SYN
+
+    // send this to the client
+    sendSequence(handshakeChannel, server.syn)
+    fmt.Printf("Server sent server SYN (%d) \n", server.syn)
+
+    // receive SYN from client
+    finalACK := <-handshakeChannel
+    fmt.Printf("Server received server sequence (%d) \n", finalACK)
+
+    if checkSequence(finalACK, server.ack) {
+        fmt.Printf("Server approved server sequence (%d) \n", finalACK)
+    } else {
+        fmt.Printf("BLOCKED server sequence (%d) \n", finalACK)
+        return
+    }
+
+    finalSYN := <-handshakeChannel
+    fmt.Printf("Server received client ack for server syn (%d) \n", finalSYN)
+
+    if checkSequence(finalSYN, server.syn) {
+        fmt.Printf("Server approved client ack for server syn (%d) \n", finalSYN)
+        fmt.Println("Server completed Handshake")
+    } else {
+        fmt.Println("BLOCKED")
+        return
+    }
+
+    acceptanceChannel <- true
+    fmt.Println("server accepted the handshake")
+
+    /*
+        // SYN y - receive + check
+        ACK4 := <-handshakeChannel
+        fmt.Println("Server received ACK 4")
+        if checkSequence(ACK4, server.sequenceY) {
+            fmt.Println("Server approved ACK 4")
+        } else {
+            fmt.Println("BLOCKED")
+            return
+        }
+
+    */
+}
+
+func (server *Server) sendPackage(channel chan string) {
+    channel <- server.serverPackage
+    println("server sent package")
+}
+
+func sendSequence(sequenceChannel chan int, sequence int) {
+    sequenceChannel <- sequence
+}
+
+func nextExpectedSequenceNumber(sequence int) int {
+    return sequence + 1
+}
+
+func checkSequence(receivedSequence int, originalSequence int) bool {
+    return receivedSequence-1 == originalSequence
+}
